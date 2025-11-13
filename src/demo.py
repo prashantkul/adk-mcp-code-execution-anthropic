@@ -9,7 +9,7 @@ import os
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from adk_agent import MCPCodeAgent
+from mcp_code_agent import MCPCodeAgent
 
 
 async def run_simple_demos(agent: MCPCodeAgent):
@@ -19,7 +19,7 @@ async def run_simple_demos(agent: MCPCodeAgent):
     print("="*60)
 
     # Demo 1: Get single customer
-    await agent.run_task("Get the details for customer ID '123'")
+    await agent.run_task("Get the details for customer ID '1'")
 
     # Demo 2: List customers
     await agent.run_task("List all customers")

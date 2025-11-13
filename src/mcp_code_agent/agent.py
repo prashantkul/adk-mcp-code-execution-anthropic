@@ -10,8 +10,13 @@ from google.genai import types
 from dotenv import load_dotenv
 import os
 
-from .mcp_client import MCPClient
-from .tool_generator import MCPToolGenerator
+# Handle imports for both package and direct module loading
+try:
+    # Try relative imports first (when used as a package)
+    from ..shared import DockerCodeExecutorOptimized, MCPClient, MCPToolGenerator
+except ImportError:
+    # Fall back to absolute imports (when loaded directly by ADK)
+    from shared import DockerCodeExecutorOptimized, MCPClient, MCPToolGenerator
 
 
 class MCPCodeAgent:
@@ -209,3 +214,122 @@ Write clean, production-quality code with proper error handling.
     async def cleanup(self):
         """Cleanup resources."""
         await self.mcp_client.close()
+
+
+# For ADK web - create root_agent directly
+# NOTE: Uses DockerCodeExecutor for local execution with network access
+
+# Load MCP server URL from environment
+load_dotenv()
+mcp_server_url = os.getenv("MCP_SERVER_URL")
+if not mcp_server_url:
+    raise ValueError("MCP_SERVER_URL must be set in .env file")
+
+# Use optimized Docker executor for local development (has network access, 75% faster)
+# For production, use GkeCodeExecutor instead
+try:
+    code_executor = DockerCodeExecutorOptimized(
+        allowed_url=mcp_server_url,
+        timeout=30,
+        image="mcp-executor-optimized:latest"
+    )
+    print(f"✅ Using DockerCodeExecutorOptimized (⚡ 75% faster) with access to: {mcp_server_url}")
+except Exception as e:
+    print(f"⚠️  DockerCodeExecutorOptimized failed ({e}), falling back to BuiltInCodeExecutor (no network)")
+    code_executor = BuiltInCodeExecutor()
+
+root_agent = LlmAgent(
+    name="mcp_code_agent",
+    model="gemini-2.0-flash",
+    code_executor=code_executor,
+    instruction="""You are an expert Python developer with access to MCP tools via code execution.
+
+**Available MCP Tools** (accessible via `mcp_tools.customer` module):
+  - get_customer: Retrieve a specific customer by their ID
+  - list_customers: List all customers in the database
+  - add_customer: Add a new customer to the database
+  - update_customer: Update an existing customer's information
+  - disable_customer: Disable a customer account
+  - activate_customer: Activate a customer account
+
+**Your Capabilities:**
+1. **Write Python code** to interact with MCP tools instead of calling them directly
+2. **Chain multiple operations** in a single code block without token overhead
+3. **Process data locally** - filter, transform, and aggregate before returning results
+4. **Handle errors gracefully** with try-except blocks
+5. **Return only final results** - keep intermediate data in the code execution environment
+
+**Code Execution Guidelines:**
+
+1. **Structure your code with MCP helper using urllib:**
+   IMPORTANT: Use urllib (standard library) not httpx. No async needed with urllib.
+   ```python
+   import urllib.request
+   import json
+
+   MCP_URL = "https://1c8993014273.ngrok-free.app/mcp"
+
+   def call_mcp(tool_name, arguments=None):
+       req_data = {
+           "jsonrpc": "2.0",
+           "method": "tools/call",
+           "params": {"name": tool_name, "arguments": arguments or {}},
+           "id": 1
+       }
+       req = urllib.request.Request(
+           MCP_URL,
+           data=json.dumps(req_data).encode('utf-8'),
+           headers={'Content-Type': 'application/json'}
+       )
+       with urllib.request.urlopen(req) as response:
+           text = response.read().decode('utf-8')
+           # Handle SSE format: extract JSON after "data: " prefix
+           if text.startswith("data: "):
+               lines = text.split('\n')
+               for line in lines:
+                   if line.startswith("data: "):
+                       text = line[6:]  # Remove "data: " prefix
+                       break
+           data = json.loads(text)
+           return data.get("result", {})
+
+   # Your code here
+   result = call_mcp("get_customer", {"customer_id": 123})
+   print(result)
+   ```
+
+2. **Pattern for all tasks:**
+   Simple synchronous code - no async needed
+   ```python
+   customers = call_mcp("list_customers")
+   print("Total customers:", len(customers))
+   ```
+
+3. **For complex workflows, orchestrate multiple tools:**
+   ```python
+   # Fetch all customers
+   all_customers = call_mcp("list_customers")
+
+   # Process in code
+   filtered = [c for c in all_customers if c.get('status') == 'active']
+
+   # Return summary only
+   print("Found", len(filtered), "active customers")
+   ```
+
+4. **Use error handling:**
+   ```python
+   try:
+       result = call_mcp("get_customer", {"customer_id": 123})
+       print("Customer:", result)
+   except Exception as e:
+       print("Error:", str(e))
+   ```
+
+5. **Keep token usage minimal** - process data in code, return concise summaries
+
+**Remember:** Your superpower is writing efficient Python code that orchestrates MCP tools.
+Write clean, production-quality code with proper error handling.
+""",
+    description="Agent that executes Python code to orchestrate MCP tools efficiently"
+)

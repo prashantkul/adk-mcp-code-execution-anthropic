@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 import os
 import json
 
-from .mcp_client import MCPClient
+from shared import MCPClient
 
 
 class TraditionalMCPAgent:
@@ -222,3 +222,46 @@ Remember: Each tool call goes through the model, so intermediate results are par
     async def cleanup(self):
         """Cleanup resources."""
         await self.mcp_client.close()
+
+
+# For ADK web - create root_agent directly using McpToolset
+from dotenv import load_dotenv
+from google.adk.agents import LlmAgent
+from google.adk.tools.mcp_tool import McpToolset, StreamableHTTPConnectionParams
+
+load_dotenv()
+mcp_server_url = os.getenv("MCP_SERVER_URL")
+
+if not mcp_server_url:
+    raise ValueError(
+        "MCP_SERVER_URL environment variable is required. "
+        "Please set it in your .env file."
+    )
+
+# Create toolset
+toolset = McpToolset(
+    connection_params=StreamableHTTPConnectionParams(
+        url=mcp_server_url
+    )
+)
+
+# Create agent directly (no async setup needed - happens automatically)
+root_agent = LlmAgent(
+    name="traditional_mcp_agent",
+    model="gemini-2.0-flash",
+    tools=[toolset],
+    instruction="""You are a helpful customer management assistant.
+
+You have access to a customer database through MCP tools:
+- get_customer: Retrieve a specific customer by ID
+- list_customers: List all customers
+- add_customer: Add a new customer
+- update_customer: Update customer information
+- disable_customer: Disable a customer account
+- activate_customer: Activate a customer account
+
+Use these tools to help users manage customer data.
+Always provide clear, friendly responses.
+When performing operations, explain what you're doing.""",
+    description="Traditional MCP agent using direct tool calling via McpToolset"
+)

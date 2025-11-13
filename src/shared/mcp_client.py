@@ -64,7 +64,25 @@ class MCPClient:
         )
         response.raise_for_status()
 
-        data = response.json()
+        # Handle SSE (Server-Sent Events) format
+        response_text = response.text
+
+        # Check if response is SSE format (starts with "data: ")
+        if response_text.startswith("data: "):
+            # Extract JSON from SSE format
+            # SSE format: "data: {json}\n\n"
+            lines = response_text.split('\n')
+            for line in lines:
+                if line.startswith("data: "):
+                    json_str = line[6:]  # Remove "data: " prefix
+                    data = json.loads(json_str)
+                    break
+            else:
+                # Fallback: try to parse as regular JSON
+                data = response.json()
+        else:
+            # Regular JSON response
+            data = response.json()
 
         if "error" in data:
             raise Exception(f"JSON-RPC Error: {data['error']}")

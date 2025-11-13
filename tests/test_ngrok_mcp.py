@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from mcp_client import MCPClient
+from shared import MCPClient
 
 
 async def test_ngrok():

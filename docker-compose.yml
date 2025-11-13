@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  code-executor:
+    build:
+      context: .
+      dockerfile: Dockerfile.executor
+    image: mcp-code-executor:latest
+    container_name: mcp-code-executor
+    network_mode: bridge
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_ADMIN  # For iptables rules
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    environment:
+      - ALLOWED_MCP_URL=${MCP_SERVER_URL}
+    # Network policy: only allow connections to MCP server
+    # This will be enforced by iptables rules in the startup script

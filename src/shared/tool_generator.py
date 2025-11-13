@@ -58,7 +58,7 @@ class MCPToolGenerator:
 
             async def _call_mcp_tool(tool_name: str, arguments: Dict[str, Any]) -> Any:
                 """
-                Internal function to call MCP tools via HTTP.
+                Internal function to call MCP tools via JSON-RPC 2.0.
 
                 Args:
                     tool_name: Name of the MCP tool
@@ -67,17 +67,61 @@ class MCPToolGenerator:
                 Returns:
                     Tool execution result
                 """
+                request_id = 1  # Simple counter for this execution
+
+                # Build JSON-RPC 2.0 request
+                json_rpc_request = {{
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "params": {{
+                        "name": tool_name,
+                        "arguments": arguments
+                    }},
+                    "id": request_id
+                }}
+
                 async with httpx.AsyncClient(timeout=30.0) as client:
                     response = await client.post(
-                        f"{{MCP_SERVER_URL}}/mcp/v1/tools/call",
-                        json={{
-                            "name": tool_name,
-                            "arguments": arguments
-                        }}
+                        MCP_SERVER_URL,
+                        json=json_rpc_request,
+                        headers={{"Content-Type": "application/json"}}
                     )
                     response.raise_for_status()
-                    result = response.json()
-                    return result.get("content", [{{}}])[0].get("text", result)
+
+                    # Handle SSE (Server-Sent Events) format
+                    response_text = response.text
+
+                    # Check if response is SSE format (starts with "data: ")
+                    if response_text.startswith("data: "):
+                        # Extract JSON from SSE format
+                        lines = response_text.split('\\n')
+                        for line in lines:
+                            if line.startswith("data: "):
+                                json_str = line[6:]  # Remove "data: " prefix
+                                data = json.loads(json_str)
+                                break
+                        else:
+                            # Fallback: try to parse as regular JSON
+                            data = response.json()
+                    else:
+                        # Regular JSON response
+                        data = response.json()
+
+                    # Handle JSON-RPC error
+                    if "error" in data:
+                        raise Exception(f"MCP Error: {{data['error']}}")
+
+                    # Extract result from JSON-RPC response
+                    result = data.get("result", {{}})
+
+                    # MCP tools/call returns result with content array
+                    if "content" in result:
+                        content = result["content"]
+                        if content and len(content) > 0:
+                            return content[0].get("text", content[0])
+                        return content
+
+                    return result
 
 
         ''')

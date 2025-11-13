@@ -11,8 +11,8 @@ from tabulate import tabulate
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from adk_agent import MCPCodeAgent
-from traditional_agent import TraditionalMCPAgent
+from mcp_code_agent import MCPCodeAgent
+from traditional_mcp_agent import TraditionalMCPAgent
 
 
 def print_header(title: str):

@@ -1,29 +1,58 @@
 # Code Execution with MCP using Google ADK
 
-A working prototype demonstrating Anthropic's "Code Execution with MCP" pattern using Google ADK, achieving **98% token reduction** by converting MCP tools into code-based APIs.
+A comprehensive implementation demonstrating Anthropic's "Code Execution with MCP" pattern using Google ADK. Achieves **89.8% token reduction** for repeated operations by converting MCP tools into code-based APIs.
 
 ## 🎯 What This Demonstrates
 
 Instead of calling MCP tools directly (loading all schemas in context and passing results through the model), we:
 
-1. **Convert MCP tools → Python modules** (stored on disk, 0 tokens)
-2. **Agent writes Python code** to orchestrate tools (~500 tokens)
-3. **Code executes in sandbox**, intermediate results stay local
-4. **Only final summary returned** (~200 tokens)
+1. **Agent writes Python code** with inline HTTP calls to MCP server
+2. **Code executes in optimized Docker sandbox** (79% faster than baseline)
+3. **Intermediate results stay in code** - never enter LLM context
+4. **Only final summary returned** to the agent
 
-**Result:** 150K tokens → 2K tokens (98.7% reduction)
+**Key Finding:** Context grows O(1) constant vs O(n²) quadratic in traditional approach
+
+## 📊 Measured Results
+
+### Single Operation
+- Traditional: 411 tokens, 2.5s ⚡ **WINNER** (simpler is better)
+- Code Execution: 658 tokens, 5s
+
+### 10 Sequential Operations
+- Traditional: **7,268 tokens processed**, 26s
+- Code Execution: **744 tokens processed**, 9s ⚡
+- **Savings: 89.8% tokens, 66% time**
+
+> See [tests/TEST_RESULTS.md](tests/TEST_RESULTS.md) for complete analysis
 
 ## 🏗️ Architecture
 
+### Two Approaches Implemented
+
+**1. Traditional MCP Agent** (function calling via McpToolset)
 ```
-Agent (Gemini 2.0) → Writes Python Code → Sandbox Execution
+User Query → LLM (with all tool schemas) → Function Call
                                               ↓
-                                         mcp_tools/
-                                           ├── customer.py
-                                           └── __init__.py
+                                         McpToolset → HTTP → MCP Server
                                               ↓
-                                         HTTP → MCP Server (ngrok)
+                                         Result → LLM Context (grows!)
 ```
+
+**2. Code Execution Agent** (this repository's focus)
+```
+User Query → LLM → Generates Python Code
+                        ↓
+                   DockerCodeExecutorOptimized
+                        ↓
+                   Code makes HTTP calls → MCP Server
+                        ↓
+                   Process ALL results in code
+                        ↓
+                   Return ONLY summary → LLM
+```
+
+**Key Difference**: Traditional reprocesses context on each tool call (quadratic cost), Code Execution keeps context constant.
 
 ## 📋 Prerequisites
 
@@ -63,33 +92,77 @@ cd mcp_adk_prototype
 python src/demo.py
 ```
 
-## 📊 Token Comparison
-
-Run the comparison analysis:
-```bash
-python examples/token_comparison.py
-```
-
-Output shows:
-- Traditional approach: ~6,840 tokens
-- Code execution: ~500 tokens
-- **Reduction: 92.7%** (and this is a simple example!)
-
 ## 🧪 Running Tests
 
+### Quick Comparison (Most Important!)
 ```bash
+# Demonstrates the 89.8% token reduction
+python tests/test_repeated_operations.py
+```
+
+### All Tests
+```bash
+# Individual agents
+python tests/test_programmatic.py              # Code execution agent
+python tests/test_traditional_programmatic.py  # Traditional MCP agent
+
+# Performance comparisons
+python tests/test_token_comparison_fixed.py    # Single operation comparison
+python tests/test_repeated_operations.py        # Sequential operations (⭐ key test)
+
+# Run all tests
 pytest tests/ -v
+```
+
+### Test Results
+See comprehensive analysis in:
+- **[tests/TEST_RESULTS.md](tests/TEST_RESULTS.md)** - Complete performance analysis
+- **[tests/README.md](tests/README.md)** - Test suite documentation
+
+**Key Findings:**
+- **Crossover point**: 3-5 operations (Traditional better below, Code Execution better above)
+- **Context growth**: Traditional O(n²), Code Execution O(1)
+- **Use Traditional when**: Simple queries, <20 tools, latency critical
+- **Use Code Execution when**: Complex workflows, 100+ tools, cost critical
+
+## ⚡ Performance Optimization
+
+### DockerCodeExecutorOptimized (Current Implementation)
+
+**Problem**: BuiltInCodeExecutor has NO network access (can't reach MCP server)
+
+**Solution**: Custom Docker executor with pre-built image
+
+**Results**:
+- **Baseline**: 1.65s per execution (pip install on every run)
+- **Optimized**: 0.34s per execution ⚡
+- **Improvement**: **79% faster**
+
+```dockerfile
+# Dockerfile.executor-optimized
+FROM python:3.11-slim
+RUN pip install --no-cache-dir urllib3  # Pre-installed!
+RUN useradd -m -u 1000 sandbox
+USER sandbox
+WORKDIR /workspace
+```
+
+Build:
+```bash
+docker build -f Dockerfile.executor-optimized -t mcp-executor-optimized:latest .
 ```
 
 ## 🔒 Security Considerations
 
-### Current (BuiltInCodeExecutor)
-- ✅ Uses Gemini's built-in sandbox
+### Current (DockerCodeExecutorOptimized)
+- ✅ Docker container isolation
+- ✅ Network restricted to MCP server URL only
+- ✅ Non-root user execution
+- ✅ 30-second timeout
 - ⚠️ Suitable for development/testing
-- ⚠️ Limited isolation controls
 
 ### Production (GkeCodeExecutor)
-Upgrade to GKE with gVisor for production:
+For production, upgrade to GKE with gVisor:
 ```python
 from google.adk.code_executors import GkeCodeExecutor
 
@@ -101,7 +174,7 @@ executor = GkeCodeExecutor(
 )
 ```
 
-Benefits:
+Additional benefits:
 - 🔒 Kernel-level isolation (gVisor)
 - 🔒 Syscall filtering
 - 🔒 Resource limits
@@ -109,41 +182,66 @@ Benefits:
 
 ## 📚 Key Concepts
 
-### Traditional Tool Calling
+### Traditional Tool Calling (McpToolset)
 ```python
-# Agent thinks and acts in multiple steps
-# Step 1: Load all tool schemas in context (~1500 tokens)
-# Step 2: Call list_customers
-result = agent.call_tool("list_customers")  # ~5000 tokens response
-# Step 3: Call get_customer for each (more tokens)
-# Step 4: Process results (even more tokens)
-# Total: ~10,000+ tokens
+# Each operation is a separate LLM invocation
+# Context grows with EVERY call
+
+Turn 1: User: "Get customer 1"
+  → LLM: function_call(get_customer, {id: 1})
+  → Result in context: 315 tokens
+
+Turn 2: User: "Get customer 2"
+  → Previous context STILL THERE: 315 tokens
+  → LLM: function_call(get_customer, {id: 2})
+  → Result in context: 407 tokens (+92)
+
+... continues growing ...
+
+Turn 10: Context = 1,140 tokens
+Total processed: 7,268 tokens (quadratic!)
 ```
 
-### Code Execution with MCP
+### Code Execution with MCP (This Implementation)
 ```python
-# Agent writes code ONCE (~500 tokens)
+# Agent writes code ONCE with inline HTTP calls
+# ALL operations happen in the code
+
 code = """
-from mcp_tools import customer
+import urllib.request
+import json
 
-# Everything happens in code
-customers = await customer.list_customers()
-filtered = [c for c in customers if c['state'] == 'CA']
-result = f"Found {len(filtered)} CA customers"
-print(result)  # Only this returns to agent
+MCP_URL = "https://your-ngrok-url/mcp"
+
+def call_mcp(tool_name, arguments):
+    # ... HTTP helper ...
+    pass
+
+# Process ALL 10 customers in code
+for customer_id in range(1, 11):
+    response = call_mcp("get_customer", {"customer_id": customer_id})
+    # Process in code, not in LLM context!
+
+print("Active: 8, Disabled: 2")  # Only this returns
 """
-# Total: ~700 tokens (including response)
+
+# Result: 744 tokens total (constant!)
 ```
+
+**Key Insight**: Intermediate results (all 10 customer records) NEVER enter LLM context!
 
 ## 🎓 Learning Outcomes
 
-After running this prototype, you'll understand:
+After running this implementation, you'll understand:
 
-1. How to generate Python wrappers from MCP schemas
-2. How to configure Google ADK for code execution
-3. How to achieve dramatic token reduction
-4. Security considerations for production deployment
-5. When to use code execution vs. direct tool calling
+1. **Why code execution isn't universally better** - Traditional wins for simple queries
+2. **The quadratic cost problem** - O(n²) processing in traditional vs O(1) in code execution
+3. **The crossover point** - 3-5 operations where code execution becomes advantageous
+4. **Optimizing Docker executors** - Pre-built images achieve 79% speedup
+5. **Two approaches to MCP integration**:
+   - Traditional: McpToolset with function calling
+   - Code Execution: Inline HTTP calls in generated Python code
+6. **When to use each approach** - Based on operation count, tool count, and latency requirements
 
 ## 🔧 Extending the Prototype
 

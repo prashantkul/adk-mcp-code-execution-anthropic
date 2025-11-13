@@ -1,0 +1,13 @@
+# Optimized executor with pre-installed dependencies
+FROM python:3.11-slim
+
+# Pre-install common libraries to avoid pip install on every execution
+RUN pip install --no-cache-dir urllib3
+
+# Create non-root user for security
+RUN useradd -m -u 1000 sandbox
+
+USER sandbox
+WORKDIR /workspace
+
+CMD ["python"]
