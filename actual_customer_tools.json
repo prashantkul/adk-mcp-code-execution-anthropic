@@ -1,0 +1,121 @@
+{
+  "tools": [
+    {
+      "name": "get_customer",
+      "description": "Retrieve a specific customer by their ID. Returns customer details including name, email, phone, and status.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "integer",
+            "description": "The unique ID of the customer to retrieve"
+          }
+        },
+        "required": [
+          "customer_id"
+        ]
+      }
+    },
+    {
+      "name": "list_customers",
+      "description": "List all customers in the database. Can optionally filter by status (active or disabled).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "disabled"
+            ],
+            "description": "Optional filter by customer status"
+          }
+        }
+      }
+    },
+    {
+      "name": "add_customer",
+      "description": "Add a new customer to the database. Name is required, email and phone are optional.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Customer's full name (required)"
+          },
+          "email": {
+            "type": "string",
+            "description": "Customer's email address (optional)"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Customer's phone number (optional)"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "update_customer",
+      "description": "Update an existing customer's information. Provide the customer ID and the fields to update.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "integer",
+            "description": "The unique ID of the customer to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "New name (optional)"
+          },
+          "email": {
+            "type": "string",
+            "description": "New email (optional)"
+          },
+          "phone": {
+            "type": "string",
+            "description": "New phone (optional)"
+          }
+        },
+        "required": [
+          "customer_id"
+        ]
+      }
+    },
+    {
+      "name": "disable_customer",
+      "description": "Disable a customer account by setting their status to 'disabled'.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "integer",
+            "description": "The unique ID of the customer to disable"
+          }
+        },
+        "required": [
+          "customer_id"
+        ]
+      }
+    },
+    {
+      "name": "activate_customer",
+      "description": "Activate a customer account by setting their status to 'active'.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "integer",
+            "description": "The unique ID of the customer to activate"
+          }
+        },
+        "required": [
+          "customer_id"
+        ]
+      }
+    }
+  ]
+}
