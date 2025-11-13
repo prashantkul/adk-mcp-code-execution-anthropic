@@ -1,0 +1,19 @@
+{
+  "tool_count": 1,
+  "total_schema_tokens": 174,
+  "tools": [
+    {
+      "name": "sign_file",
+      "description": "Sign a file's contents with SSH-style Ed25519 signature. This tool reads a file and signs its contents for git commits and other authentication needs.",
+      "parameters": [
+        "file_path",
+        "git_object_format",
+        "output_path",
+        "repo_directory"
+      ],
+      "required": [
+        "file_path"
+      ]
+    }
+  ]
+}

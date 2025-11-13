@@ -1,0 +1,49 @@
+{
+  "tool_count": 6,
+  "total_schema_tokens": 900,
+  "server_description": "Customer Management MCP Server",
+  "tools": [
+    {
+      "name": "get_customer",
+      "description": "Retrieve a specific customer by their ID. Returns customer details including name, email, phone, and status.",
+      "parameters": ["customer_id"],
+      "required": ["customer_id"],
+      "estimated_tokens": 140
+    },
+    {
+      "name": "list_customers",
+      "description": "List all customers in the database. Can optionally filter by status (active or disabled).",
+      "parameters": ["status"],
+      "required": [],
+      "estimated_tokens": 130
+    },
+    {
+      "name": "add_customer",
+      "description": "Add a new customer to the database. Name is required, email and phone are optional.",
+      "parameters": ["name", "email", "phone"],
+      "required": ["name"],
+      "estimated_tokens": 160
+    },
+    {
+      "name": "update_customer",
+      "description": "Update an existing customer's information. Provide the customer ID and the fields to update.",
+      "parameters": ["customer_id", "name", "email", "phone"],
+      "required": ["customer_id"],
+      "estimated_tokens": 170
+    },
+    {
+      "name": "disable_customer",
+      "description": "Disable a customer account by setting their status to 'disabled'.",
+      "parameters": ["customer_id"],
+      "required": ["customer_id"],
+      "estimated_tokens": 150
+    },
+    {
+      "name": "activate_customer",
+      "description": "Activate a customer account by setting their status to 'active'.",
+      "parameters": ["customer_id"],
+      "required": ["customer_id"],
+      "estimated_tokens": 150
+    }
+  ]
+}
