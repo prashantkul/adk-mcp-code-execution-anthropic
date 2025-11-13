@@ -4,6 +4,7 @@ import httpx
 from typing import Dict, List, Any, Optional
 from pydantic import BaseModel
 import json
+import os
 
 
 class MCPTool(BaseModel):
@@ -14,17 +15,61 @@ class MCPTool(BaseModel):
 
 
 class MCPClient:
-    """Client for interacting with MCP servers via HTTP."""
+    """Client for interacting with MCP servers via HTTP using JSON-RPC 2.0."""
 
-    def __init__(self, server_url: str):
+    def __init__(self, server_url: str, auth_token: Optional[str] = None):
         """
         Initialize MCP client.
 
         Args:
-            server_url: Base URL of the MCP server (e.g., ngrok URL)
+            server_url: Base URL of the MCP server (e.g., http://localhost:20406)
+            auth_token: Optional authentication token
         """
         self.server_url = server_url.rstrip('/')
-        self.client = httpx.AsyncClient(timeout=30.0)
+        self.auth_token = auth_token or os.getenv("CODESIGN_MCP_TOKEN")
+        self.request_id = 0
+
+        headers = {"Content-Type": "application/json"}
+        if self.auth_token:
+            headers["Authorization"] = f"Bearer {self.auth_token}"
+
+        self.client = httpx.AsyncClient(timeout=30.0, headers=headers)
+
+    def _next_id(self) -> int:
+        """Get next request ID."""
+        self.request_id += 1
+        return self.request_id
+
+    async def _call_jsonrpc(self, method: str, params: Dict[str, Any] = None) -> Any:
+        """
+        Make a JSON-RPC 2.0 call to the MCP server.
+
+        Args:
+            method: The JSON-RPC method name
+            params: Method parameters
+
+        Returns:
+            The result from the JSON-RPC response
+        """
+        request_payload = {
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params or {},
+            "id": self._next_id()
+        }
+
+        response = await self.client.post(
+            self.server_url,
+            json=request_payload
+        )
+        response.raise_for_status()
+
+        data = response.json()
+
+        if "error" in data:
+            raise Exception(f"JSON-RPC Error: {data['error']}")
+
+        return data.get("result", {})
 
     async def list_tools(self) -> List[MCPTool]:
         """
@@ -33,14 +78,10 @@ class MCPClient:
         Returns:
             List of MCPTool objects
         """
-        response = await self.client.post(
-            f"{self.server_url}/mcp/v1/tools/list",
-            json={}
-        )
-        response.raise_for_status()
-        data = response.json()
+        result = await self._call_jsonrpc("tools/list", {})
+        tools = result.get("tools", [])
 
-        return [MCPTool(**tool) for tool in data.get('tools', [])]
+        return [MCPTool(**tool) for tool in tools]
 
     async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
         """
@@ -53,15 +94,12 @@ class MCPClient:
         Returns:
             Tool execution result
         """
-        response = await self.client.post(
-            f"{self.server_url}/mcp/v1/tools/call",
-            json={
-                "name": tool_name,
-                "arguments": arguments
-            }
-        )
-        response.raise_for_status()
-        return response.json()
+        result = await self._call_jsonrpc("tools/call", {
+            "name": tool_name,
+            "arguments": arguments
+        })
+
+        return result
 
     async def close(self):
         """Close the HTTP client."""
